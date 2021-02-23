@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoML Edge UI</title>
+</head>
+<body>
+    <label for="api-url">Rest API</label>
+    <input id="api-url" placeholder="http://localhost:8502"/>
+    <br/>
+    <canvas id="canvas" style="border: 1px solid gray"></canvas>
+    <br/>
+    <label for="min-confidence-input">Min confidence</label>
+    <input id="min-confidence-input" type="number" min="0" max="1" placeholder="0.5"/>
+    <br/>
+    <input id="image-input" type="file" accept="image/*"/>
+    <script>
+        let apiUrlInputEl = document.getElementById("api-url");
+        let canvas = document.getElementById("canvas");
+        let ctx = canvas.getContext("2d");
+        let imageInputEl = document.getElementById("image-input");
+        let minConfidenceInputEl = document.getElementById("min-confidence-input");
+
+        let bitmap = null;
+        let apiUrl = "http://localhost:8502";
+        let minConfidence = 0.5; 
+
+        function drawPrediction() {
+            let { width, height } = canvas;
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(bitmap, 0, 0, width, height);
+
+            let n = Math.trunc(prediction.num_detections) || 0;
+
+            for (let i = 0; i < n; i += 1) {
+                if (prediction.detection_scores[i] > minConfidence) {
+                    let [yMin, xMin, yMax, xMax] = prediction.detection_boxes[i];
+                    let [left, top, right, bottom] = [xMin*width, yMin*height, xMax*width, yMax*height];
+
+                    ctx.beginPath();
+                    ctx.strokeStyle = "green";
+                    ctx.lineWidth = 2;
+                    ctx.rect(left, top, right - left, bottom - top);
+                    ctx.stroke();
+
+                    ctx.font = "16px sans-serif";
+                    ctx.fillStyle = "green";
+                    ctx.fillText(prediction.detection_classes_as_text[i] + ": " + prediction.detection_scores[i].toFixed(4), left, bottom, right - left);
+                }
+            }
+        }
+
+        apiUrlInputEl.oninput = function(e) {
+            apiUrl = apiUrlInputEl.value;
+        };
+
+        minConfidenceInputEl.oninput = function(e) {
+            minConfidence = parseFloat(minConfidenceInputEl.value) || minConfidence;
+            console.log(minConfidence);
+            drawPrediction();
+        };
+
+        imageInputEl.onchange = async function(e) {
+            if (imageInputEl.files.length > 0) {
+                let imageFile = imageInputEl.files[0];
+
+                bitmap = await window.createImageBitmap(imageFile)
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+
+                let reader = new FileReader();
+                reader.addEventListener("load", async function () {
+                    let imageAsBase64 = reader.result;
+                    imageAsBase64 = imageAsBase64.slice(imageAsBase64.indexOf(",") + 1);
+
+                    let response = await fetch(apiUrl, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            instances: [
+                                {
+                                    image_bytes: {
+                                        b64: imageAsBase64,
+                                    },
+                                    key: "image0"
+                                }
+                            ]
+                        })
+                    });
+                    let responseJson = await response.json();
+                    prediction = responseJson.predictions[0];
+
+                    drawPrediction();   
+                }, false);
+                reader.readAsDataURL(imageFile);    
+            }
+        };
+    </script>
+</body>
+</html>
